@@ -23,15 +23,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-v6v!_=0zbfj$zo(b+q*aglg**)z_26als2%w64a(me^!7pxcvh'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
-
+AUTH_USER_MODEL = "storage.User"
 # Application definition
 
 INSTALLED_APPS = [
     'channels',
+    'corsheaders',
+    'rest_framework',
+    'rest_framework.authtoken',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -40,9 +43,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'chat',
     'game',
+    'storage',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -53,7 +58,11 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'config.urls'
+CORS_ORIGIN_ALLOW_ALL = True
 
+CORS_ORIGIN_WHITELIST = [
+       'http://127.0.0.1:3000',
+]
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -71,11 +80,21 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
-ASGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+}
+CACHES = {  
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379"
+        
     }
 }
 # Database
@@ -133,3 +152,84 @@ STATIC_ROOT = os.path.join(BASE_DIR,'staticfiles')
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+import logging
+
+class IPAddressFilter(logging.Filter):
+
+    def filter(self, record):
+        if hasattr(record, 'request'):
+            x_forwarded_for = record.request.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                record.ip = x_forwarded_for.split(',')[0]
+            else:
+                record.ip = record.request.META.get('REMOTE_ADDR')
+        return True
+ 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    # 형식정의
+    'formatters': {
+        'format1': {'format': '[%(asctime)s] %(levelname)s %(message)s','datefmt': "%Y-%m-%d %H:%M:%S"},
+        'format2': {'format': '%(levelname)s %(message)s [%(name)s:%(lineno)s]'},
+        'badUserIP': {
+            "format": "%(asctime)s  - %(name)s - %(ip)s - %(levelname)s -  %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S"
+        }
+    },    
+    'handlers': {
+        # 파일저장
+        'file': {
+                'level': 'INFO',
+                'class': 'logging.handlers.RotatingFileHandler',
+                'filename': os.path.join(BASE_DIR, 'logs/mysite.log'),
+                'encoding': 'UTF-8',
+                'maxBytes': 1024 * 1024 * 5,  # 5 MB
+                'backupCount': 5,
+                'formatter': 'format1',
+                },
+        'badUserFile': {
+                'level': 'INFO',
+                'class': 'logging.handlers.RotatingFileHandler',
+                'filename': os.path.join(BASE_DIR, 'logs/mysiteBad.log'),
+                'encoding': 'UTF-8',
+                'maxBytes': 1024 * 1024 * 5,  # 5 MB
+                'backupCount': 5,
+                'formatter': 'badUserIP',
+        },
+        # 콘솔(터미널)에 출력
+        'console': {'level': 'INFO','class': 'logging.StreamHandler','formatter': 'format2',
+        },
+    },
+    'filters': {
+        'add_ip_address': {
+            '()': IPAddressFilter# You can move IPAddressFilter class from settings.py to another location (e.g., apps.other.filters.IPAddressFilter)
+        }
+    },
+    'loggers': {
+        #종류
+        'django.server': {
+            'handlers': ['file','console','badUserFile'],
+            "filters": ['add_ip_address'],
+            'propagate': False,
+            'level': 'INFO',
+        },
+        'django.request': {
+            'handlers':['file','console','badUserFile'],
+            "filters": ['add_ip_address'],
+            'propagate': False,
+            'level':'DEBUG',
+        },
+        'daphne': {
+            'handlers':['file','console','badUserFile'],
+            "filters": ['add_ip_address'],
+            'level': 'DEBUG'
+        },        
+        '': {
+            'level': 'DEBUG',
+            "filters": ['add_ip_address'],
+            'handlers': ['file','badUserFile'],
+            'propagate': True,
+        },
+    },
+}
